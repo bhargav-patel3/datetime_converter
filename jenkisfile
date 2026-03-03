@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "bunny9988/dt_convert"
+        IMAGE_TAG    = "${BUILD_NUMBER}"
+        NAMESPACE    = "dtc"
+    }
+
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Git Pull') {
+            steps {
+                git branch: 'main', credentialsId: 'github_token', url: 'https://github.com/bunny1-1/datetime_convertor.git'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh "docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub_cred', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                    sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin"
+                    sh "docker push ${DOCKER_IMAGE}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Docker Deploy') {
+            steps {
+                script {
+                    // Stop and remove existing container if it exists
+                    sh "docker stop flask-app || true"
+                    sh "docker rm flask-app || true"
+                    // Start new container
+                    sh "docker run -d --name flask-app -p 5000:5000 ${DOCKER_IMAGE}:${IMAGE_TAG}"
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh "docker logout"
+        }
+        success {
+            echo "Deployment successful! Access at http://localhost:5000"
+        }
+        failure {
+            echo "Deployment failed. Check docker logs with 'docker logs flask-app'."
+        }
+    }
+}
